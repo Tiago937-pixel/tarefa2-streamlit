@@ -18,28 +18,28 @@ st.set_page_config(layout="wide", page_title="Análise de Preços Imobiliários 
 @st.cache_data  # Cache para não recarregar os dados a cada interação
 def load_data():
     """
-    Carrega o dataset Ames Housing lendo um arquivo CSV local em data/AmesHousing.csv.
-    Retorna um DataFrame pandas. Se o arquivo não existir ou houver erro na leitura,
-    retorna DataFrame vazio e exibe mensagem de erro no Streamlit.
+    Carrega o dataset Ames Housing lendo um arquivo CSV local em 'AmesHousing.csv'
+    que esteja na raiz do repositório. Se o arquivo não existir, retorna DataFrame vazio
+    e exibe mensagem de erro.
     """
-    # 1) Caminho relativo para o CSV dentro da pasta 'data/'
-    local_csv = "data/AmesHousing.csv"
+    # 1) Caminho relativo para o CSV na raiz do repositório
+    local_csv = "AmesHousing.csv"
 
     # 2) Verifica se o arquivo existe
     if not os.path.isfile(local_csv):
         st.error(f"Arquivo não encontrado: {local_csv}")
-        st.info("Coloque o arquivo 'AmesHousing.csv' dentro da pasta 'data/' no projeto.")
+        st.info("Coloque o arquivo 'AmesHousing.csv' na raiz do projeto (junto ao app.py).")
         return pd.DataFrame()
 
     try:
-        # 3) Lê o CSV
+        # 3) Lê o CSV inteiro para um pandas DataFrame
         df = pd.read_csv(local_csv)
         st.success("Dataset Ames Housing carregado com sucesso (arquivo local)!")
     except Exception as e:
         st.error(f"Erro ao ler o arquivo local CSV: {e}")
         return pd.DataFrame()
 
-    # 4) Tratamento de valores ausentes
+    # 4) Tratamento básico de valores ausentes
     for col in df.select_dtypes(include=np.number).columns:
         if df[col].isnull().any():
             df[col].fillna(df[col].median(), inplace=True)
@@ -47,7 +47,7 @@ def load_data():
         if df[col].isnull().any():
             df[col].fillna('Missing', inplace=True)
 
-    # 5) Renomeação opcional de colunas (para manter compatibilidade)
+    # 5) Renomeação opcional de colunas, se desejar manter o padrão antigo
     df.rename(columns={
         'Overall Qual': 'OverallQual',
         'Gr Liv Area': 'GrLivArea',
@@ -66,7 +66,7 @@ def load_data():
 
     return df
 
-#  Carrega o DataFrame (será lido do CSV local)
+# Carrega o DataFrame (será lido do CSV local)
 df_ames = load_data()
 
 # --- Título e aviso caso não carregue dados ---
