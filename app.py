@@ -10,31 +10,61 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
 
-# --- Configuração da Página e Carregamento dos Dados ---
+# --- Configuração da Página ---
 st.set_page_config(layout="wide", page_title="Análise de Preços Imobiliários (Ames Housing)")
 
-@st.cache_data # Cache para não recarregar os dados a cada interação
+# --- Função de carregamento usando Kagglehub ---
+@st.cache_data(show_spinner=False)
 def load_data():
-    # URL para o dataset Ames Housing (Tab-separated)
-    data_url = "https://raw.githubusercontent.com/jgamora/datasets/main/AmesHousing.txt"
-    try:
-        df = pd.read_csv(data_url, sep='\t')
-        st.success("Dataset Ames Housing carregado com sucesso!")
-    except Exception as e:
-        st.error(f"Erro ao carregar os dados: {e}")
-        st.info("Verifique a URL do dataset ou sua conexão com a internet.")
-        return pd.DataFrame() # Retorna DataFrame vazio em caso de erro
+    """
+    Usa o kagglehub para baixar/extrair o dataset 'prevek18/ames-housing-dataset'.
+    Retorna um DataFrame pandas com todos os dados do Ames Housing.
+    """
+    import kagglehub
+    import os
 
-    # Renomear colunas para remover espaços e facilitar o uso (exemplo)
-    # É importante que os nomes das colunas no código correspondam aos do arquivo!
-    # Vamos listar algumas colunas importantes e garantir que seus nomes sejam consistentes.
-    # Se houver erros de 'KeyError', verifique os nomes das colunas no dataset original.
-    # Exemplo de renomeação (ajuste conforme necessário após inspecionar o df.columns):
+    try:
+        # 1) Baixa (ou, se já baixado, retorna o path local) dentro de um cache controlado:
+        local_path = kagglehub.dataset_download("prevek18/ames-housing-dataset")
+        # local_path será uma pasta onde estão todos os arquivos do dataset, incluindo o(s) CSV(s).
+        st.info(f"Dataset baixado/extrado via Kagglehub em: {local_path}")
+    except Exception as e:
+        st.error(f"Falha ao baixar o dataset via kagglehub: {e}")
+        return pd.DataFrame()
+
+    # 2) Percorre a pasta para encontrar o(s) .csv
+    csv_file = None
+    for entry in os.listdir(local_path):
+        if entry.lower().endswith(".csv"):
+            csv_file = os.path.join(local_path, entry)
+            break
+
+    if csv_file is None:
+        st.error("Não foi possível encontrar nenhum arquivo .csv dentro da pasta baixada do Kaggle.")
+        return pd.DataFrame()
+
+    try:
+        # 3) Lê o CSV encontrado
+        df = pd.read_csv(csv_file)
+        st.success("Dataset Ames Housing carregado com sucesso via Kagglehub!")
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo CSV extraído: {e}")
+        return pd.DataFrame()
+
+    # 4) Tratamento básico de valores ausentes (igual ao código original)
+    for col in df.select_dtypes(include=np.number).columns:
+        if df[col].isnull().any():
+            df[col].fillna(df[col].median(), inplace=True)
+    for col in df.select_dtypes(include='object').columns:
+        if df[col].isnull().any():
+            df[col].fillna('Missing', inplace=True)
+
+    # 5) Renomeação de colunas (igual ao seu código original), caso queira manter:
     df.rename(columns={
         'Overall Qual': 'OverallQual',
         'Gr Liv Area': 'GrLivArea',
         'Total Bsmt SF': 'TotalBsmtSF',
-        '1st Flr SF': 'FirstFlrSF', # Corrigido para uso mais comum
+        '1st Flr SF': 'FirstFlrSF',
         'Bsmt Qual': 'BsmtQual',
         'Kitchen Qual': 'KitchenQual',
         'Fireplace Qu': 'FireplaceQu',
@@ -44,40 +74,28 @@ def load_data():
         'Central Air': 'CentralAir',
         'MS Zoning': 'MSZoning',
         'House Style': 'HouseStyle'
-        # Adicione outros mapeamentos de renomeação se necessário
-    }, inplace=True, errors='ignore') # errors='ignore' para não falhar se a coluna não existir
+    }, inplace=True, errors='ignore')
 
-
-    # Tratamento básico de valores ausentes (simplificado)
-    # Preencher numéricos com mediana
-    for col in df.select_dtypes(include=np.number).columns:
-        if df[col].isnull().any():
-            df[col].fillna(df[col].median(), inplace=True)
-            
-    # Preencher categóricos com 'Missing' ou moda
-    for col in df.select_dtypes(include='object').columns:
-        if df[col].isnull().any():
-            df[col].fillna('Missing', inplace=True)
-            
     return df
 
+# Carrega o DataFrame (será baixado/extrado apenas na primeira vez)
 df_ames = load_data()
 
-# --- Barra Lateral para Entradas do Usuário ---
-st.sidebar.header("Opções de Análise")
-
-analysis_type = st.sidebar.selectbox(
-    "Escolha o Tipo de Análise:",
-    ["Visão Geral dos Dados", "Análise ANOVA", "Análise de Regressão Linear"]
-)
-
-# --- Área Principal para Exibição ---
+# --- Área Principal do App ---
 st.title("🏠 Dashboard de Análise de Preços Imobiliários")
 st.markdown("Dataset: Ames Housing")
 
 if df_ames.empty:
     st.warning("Dataset não pôde ser carregado. Funcionalidades limitadas.")
 else:
+    # --- Barra Lateral para Entradas do Usuário ---
+    st.sidebar.header("Opções de Análise")
+
+    analysis_type = st.sidebar.selectbox(
+        "Escolha o Tipo de Análise:",
+        ["Visão Geral dos Dados", "Análise ANOVA", "Análise de Regressão Linear"]
+    )
+
     # --- Visão Geral dos Dados ---
     if analysis_type == "Visão Geral dos Dados":
         st.header("Visão Geral dos Dados")
@@ -117,23 +135,27 @@ else:
             st.error("A coluna 'SalePrice' é necessária para a análise ANOVA e não foi encontrada.")
         else:
             # Seleção de variáveis categóricas para ANOVA
-            all_cat_vars = [col for col in df_ames.select_dtypes(include='object').columns if df_ames[col].nunique() < 30 and df_ames[col].nunique() > 1]
+            all_cat_vars = [
+                col for col in df_ames.select_dtypes(include='object').columns 
+                if df_ames[col].nunique() < 30 and df_ames[col].nunique() > 1
+            ]
             
             default_anova_vars = []
-            # Tentar encontrar variáveis comuns e adequadas para ANOVA
-            common_vars_for_anova = ['OverallQual', 'Neighborhood', 'CentralAir', 'KitchenQual', 'MSZoning', 'HouseStyle', 'ExterQual', 'BsmtQual']
-            # Adicionar OverallQual se for numérica mas tratada como categórica (com poucas classes)
+            common_vars_for_anova = [
+                'OverallQual', 'Neighborhood', 'CentralAir', 
+                'KitchenQual', 'MSZoning', 'HouseStyle', 'ExterQual', 'BsmtQual'
+            ]
             if 'OverallQual' in df_ames.columns and df_ames['OverallQual'].dtype != 'object' and df_ames['OverallQual'].nunique() < 15:
-                 if 'OverallQual' not in all_cat_vars: all_cat_vars.insert(0, 'OverallQual')
-
+                if 'OverallQual' not in all_cat_vars:
+                    all_cat_vars.insert(0, 'OverallQual')
 
             for var_name in common_vars_for_anova:
                 if var_name in all_cat_vars or (var_name == 'OverallQual' and var_name in df_ames.columns):
                     default_anova_vars.append(var_name)
                 if len(default_anova_vars) >= 3:
                     break
-            if not default_anova_vars and all_cat_vars: # Fallback
-                 default_anova_vars = all_cat_vars[:min(3, len(all_cat_vars))]
+            if not default_anova_vars and all_cat_vars:
+                default_anova_vars = all_cat_vars[:min(3, len(all_cat_vars))]
 
             selected_cat_vars_anova = st.sidebar.multiselect(
                 "Escolha 2-3 variáveis para ANOVA:",
@@ -149,15 +171,23 @@ else:
 
                     anova_data = df_ames[['SalePrice', cat_var]].dropna()
                     
-                    # Converter para string se for 'OverallQual' ou similar para garantir tratamento categórico
                     if anova_data[cat_var].dtype != 'object':
                         anova_data[cat_var] = anova_data[cat_var].astype(str)
 
-                    fig_boxplot = px.box(anova_data, x=cat_var, y='SalePrice', title=f'Preço de Venda por {cat_var}', color=cat_var)
+                    fig_boxplot = px.box(
+                        anova_data,
+                        x=cat_var,
+                        y='SalePrice',
+                        title=f'Preço de Venda por {cat_var}',
+                        color=cat_var
+                    )
                     st.plotly_chart(fig_boxplot, use_container_width=True)
 
-                    groups = [anova_data['SalePrice'][anova_data[cat_var] == val] for val in anova_data[cat_var].unique()]
-                    groups_for_test = [g for g in groups if len(g) >= 2] # Grupos com pelo menos 2 observações
+                    groups = [
+                        anova_data['SalePrice'][anova_data[cat_var] == val] 
+                        for val in anova_data[cat_var].unique()
+                    ]
+                    groups_for_test = [g for g in groups if len(g) >= 2]
 
                     if len(groups_for_test) < 2:
                         st.warning(f"Não há grupos suficientes (mínimo 2 com >=2 obs.) para ANOVA na variável '{cat_var}'. Pulando.")
@@ -168,33 +198,45 @@ else:
 
                     alpha = 0.05
                     if p_value_anova < alpha:
-                        st.success(f"O p-valor ({p_value_anova:.4g}) é menor que {alpha}. "
-                                   f"Há uma diferença estatisticamente significativa no preço médio de venda "
-                                   f"entre as diferentes categorias de '{cat_var}'.")
+                        st.success(
+                            f"O p-valor ({p_value_anova:.4g}) é menor que {alpha}. "
+                            f"Há uma diferença estatisticamente significativa no preço médio de venda "
+                            f"entre as diferentes categorias de '{cat_var}'."
+                        )
                     else:
-                        st.info(f"O p-valor ({p_value_anova:.4g}) é maior ou igual a {alpha}. "
-                                f"Não há evidência de uma diferença estatisticamente significativa no preço médio de venda "
-                                f"entre as diferentes categorias de '{cat_var}'.")
+                        st.info(
+                            f"O p-valor ({p_value_anova:.4g}) é maior ou igual a {alpha}. "
+                            f"Não há evidência de uma diferença estatisticamente significativa no preço médio de venda "
+                            f"entre as diferentes categorias de '{cat_var}'."
+                        )
 
                     st.markdown("**Verificação das premissas da ANOVA:**")
                     model_ols = ols(f'SalePrice ~ C({cat_var})', data=anova_data).fit()
                     residuals = model_ols.resid
-                    
-                    # 1. Normalidade dos Resíduos (Shapiro-Wilk)
+
+                    # 1. Normalidade dos Resíduos (Shapiro-Wilk ou Kolmogorov-Smirnov)
                     if len(residuals) >= 3 and len(residuals) <= 5000:
                         shapiro_stat, shapiro_p = stats.shapiro(residuals)
                         st.write(f"*Normalidade dos Resíduos (Shapiro-Wilk):* Estatística={shapiro_stat:.4f}, p-valor={shapiro_p:.4g}")
-                        if shapiro_p > alpha: st.write("Resíduos parecem ser normalmente distribuídos (p > 0.05).")
-                        else: st.write("Resíduos NÃO parecem ser normalmente distribuídos (p <= 0.05). Premissa violada.")
+                        if shapiro_p > alpha:
+                            st.write("Resíduos parecem ser normalmente distribuídos (p > 0.05).")
+                        else:
+                            st.write("Resíduos NÃO parecem ser normalmente distribuídos (p <= 0.05). Premissa violada.")
                     elif len(residuals) > 5000:
-                        ks_stat, ks_p = stats.kstest(residuals, 'norm', args=(np.mean(residuals), np.std(residuals)))
+                        ks_stat, ks_p = stats.kstest(
+                            residuals,
+                            'norm',
+                            args=(np.mean(residuals), np.std(residuals))
+                        )
                         st.write(f"*Normalidade dos Resíduos (Kolmogorov-Smirnov):* Estatística={ks_stat:.4f}, p-valor={ks_p:.4g}")
-                        if ks_p > alpha: st.write("Resíduos parecem ser normalmente distribuídos (p > 0.05).")
-                        else: st.write("Resíduos NÃO parecem ser normalmente distribuídos (p <= 0.05). Premissa violada.")
+                        if ks_p > alpha:
+                            st.write("Resíduos parecem ser normalmente distribuídos (p > 0.05).")
+                        else:
+                            st.write("Resíduos NÃO parecem ser normalmente distribuídos (p <= 0.05). Premissa violada.")
                     else:
                         st.write("*Normalidade dos Resíduos:* Dados insuficientes para o teste.")
 
-                    # Visualização da Normalidade (Q-Q Plot)
+                    # Q-Q Plot dos Resíduos
                     fig_qq, ax_qq = plt.subplots(figsize=(6,4))
                     sm.qqplot(residuals, line='s', ax=ax_qq, fit=True)
                     ax_qq.set_title(f'Q-Q Plot dos Resíduos para {cat_var}')
@@ -204,25 +246,36 @@ else:
                     # 2. Homocedasticidade (Levene Test)
                     levene_stat, levene_p = stats.levene(*groups_for_test)
                     st.write(f"*Homocedasticidade das Variâncias (Levene Test):* Estatística={levene_stat:.4f}, p-valor={levene_p:.4g}")
-                    if levene_p > alpha: st.write("Variâncias parecem ser homogêneas (p > 0.05).")
-                    else: st.write("Variâncias NÃO parecem ser homogêneas (p <= 0.05). Premissa violada (heterocedasticidade).")
+                    if levene_p > alpha:
+                        st.write("Variâncias parecem ser homogêneas (p > 0.05).")
+                    else:
+                        st.write("Variâncias NÃO parecem ser homogêneas (p <= 0.05). Premissa violada (heterocedasticidade).")
 
-                    # d) Alternativa Robusta (Kruskal-Wallis) se premissas violadas
-                    prem_normalidade_ok = (len(residuals) >=3 and shapiro_p > alpha) if len(residuals) >=3 and len(residuals) <=5000 else (len(residuals) > 5000 and ks_p > alpha if len(residuals) > 5000 else True)
+                    prem_normalidade_ok = (
+                        (len(residuals) >= 3 and 'shapiro_p' in locals() and shapiro_p > alpha)
+                        if (len(residuals) >= 3 and len(residuals) <= 5000)
+                        else (len(residuals) > 5000 and 'ks_p' in locals() and ks_p > alpha
+                              if len(residuals) > 5000 else True)
+                    )
                     prem_homocedasticidade_ok = levene_p > alpha
 
+                    # 3. Alternativa Robusta (Kruskal-Wallis) se premissas violadas
                     if not prem_normalidade_ok or not prem_homocedasticidade_ok:
                         st.markdown("**Alternativa Robusta (Kruskal-Wallis Test):** Como as premissas da ANOVA podem ter sido violadas.")
                         kruskal_stat, kruskal_p = stats.kruskal(*groups_for_test)
                         st.write(f"*Kruskal-Wallis Test:* H-Statistic={kruskal_stat:.4f}, p-valor={kruskal_p:.4g}")
                         if kruskal_p < alpha:
-                            st.success(f"Kruskal-Wallis indica uma diferença significativa (p < {alpha}) "
-                                       f"na mediana do preço de venda entre os grupos de '{cat_var}'.")
+                            st.success(
+                                f"Kruskal-Wallis indica uma diferença significativa (p < {alpha}) "
+                                f"na mediana do preço de venda entre os grupos de '{cat_var}'."
+                            )
                         else:
-                            st.info(f"Kruskal-Wallis NÃO indica uma diferença significativa (p >= {alpha}) "
-                                      f"na mediana do preço de venda entre os grupos de '{cat_var}'.")
-                    
-                    # e) Post-hoc (Tukey HSD) se ANOVA significativa e premissas OK
+                            st.info(
+                                f"Kruskal-Wallis NÃO indica uma diferença significativa (p >= {alpha}) "
+                                f"na mediana do preço de venda entre os grupos de '{cat_var}'."
+                            )
+
+                    # 4. Post-hoc (Tukey HSD) se ANOVA significativa e premissas ok
                     if p_value_anova < alpha and prem_normalidade_ok and prem_homocedasticidade_ok:
                         st.markdown("**Teste Post-hoc (Tukey HSD):**")
                         tukey_results = pairwise_tukeyhsd(anova_data['SalePrice'], anova_data[cat_var], alpha=alpha)
@@ -232,7 +285,7 @@ else:
                         A tabela acima mostra comparações par a par. 'reject = True' indica uma diferença significativa 
                         no preço médio de venda entre os dois grupos comparados.
                         """)
-                    st.markdown("---") # Separador
+                    st.markdown("---")  # Separador
 
     # --- Análise de Regressão Linear ---
     elif analysis_type == "Análise de Regressão Linear":
@@ -246,7 +299,10 @@ else:
             st.error("A coluna 'SalePrice' é necessária para a análise de Regressão e não foi encontrada.")
         else:
             # Seleção de variáveis para Regressão
-            all_potential_predictors = [col for col in df_ames.columns if col not in ['SalePrice', 'Order', 'PID']]
+            all_potential_predictors = [
+                col for col in df_ames.columns 
+                if col not in ['SalePrice', 'Order', 'PID']
+            ]
             
             numerical_predictors = df_ames[all_potential_predictors].select_dtypes(include=np.number).columns.tolist()
             categorical_predictors_reg = df_ames[all_potential_predictors].select_dtypes(include='object').columns.tolist()
@@ -254,9 +310,13 @@ else:
             st.sidebar.markdown("**Configurações da Regressão:**")
             
             default_num_reg_vars = []
-            common_num_vars_reg = ['GrLivArea', 'OverallQual', 'TotalBsmtSF', 'YearBuilt', 'FirstFlrSF', 'GarageCars', 'GarageArea']
+            common_num_vars_reg = [
+                'GrLivArea', 'OverallQual', 'TotalBsmtSF', 
+                'YearBuilt', 'FirstFlrSF', 'GarageCars', 'GarageArea'
+            ]
             for var in common_num_vars_reg:
-                if var in numerical_predictors: default_num_reg_vars.append(var)
+                if var in numerical_predictors:
+                    default_num_reg_vars.append(var)
 
             selected_numerical_vars_reg = st.sidebar.multiselect(
                 "Selecione preditores numéricos:",
@@ -267,7 +327,7 @@ else:
             default_cat_reg_vars = []
             common_cat_vars_reg = ['Neighborhood', 'MSZoning', 'CentralAir', 'KitchenQual']
             for var in common_cat_vars_reg:
-                 if var in categorical_predictors_reg and df_ames[var].nunique() < 15: # Limitar para não gerar muitas dummies
+                if var in categorical_predictors_reg and df_ames[var].nunique() < 15:
                     default_cat_reg_vars.append(var)
 
             selected_categorical_vars_reg = st.sidebar.multiselect(
@@ -291,7 +351,7 @@ else:
                     if selected_categorical_vars_reg:
                         X = pd.get_dummies(X, columns=selected_categorical_vars_reg, drop_first=True, dtype=float)
 
-                    X = sm.add_constant(X.astype(float)) # Adicionar intercepto e garantir float
+                    X = sm.add_constant(X.astype(float))  # Adicionar intercepto e garantir float
 
                     try:
                         model = sm.OLS(y, X).fit()
@@ -300,12 +360,12 @@ else:
 
                         st.markdown("**Interpretação do Sumário:**")
                         st.markdown(f"""
-                        - **R-squared (R²):** {model.rsquared:.3f}. Indica que ~{model.rsquared*100:.1f}% da variância em `SalePrice` é explicada pelos preditores.
-                        - **Adj. R-squared:** {model.rsquared_adj:.3f}. R² ajustado pela quantidade de preditores.
-                        - **P>|t| (p-valor dos coeficientes):** Se < 0.05, o preditor é estatisticamente significativo.
-                        - **Coeficientes (coef):** Mostra a mudança esperada em `SalePrice` para um aumento unitário no preditor, mantendo outros constantes.
+                        - **R-squared (R²):** {model.rsquared:.3f}. Indica que ~{model.rsquared*100:.1f}% da variância em `SalePrice` é explicada pelos preditores.  
+                        - **Adj. R-squared:** {model.rsquared_adj:.3f}. R² ajustado pela quantidade de preditores.  
+                        - **P>|t| (p-valor dos coeficientes):** Se < 0.05, o preditor é estatisticamente significativo.  
+                        - **Coeficientes (coef):** Mostra a mudança esperada em `SalePrice` para um aumento unitário no preditor, mantendo outros constantes.  
                         """)
-                        
+
                         st.subheader("Diagnóstico dos Resíduos da Regressão")
                         residuals_reg = model.resid
                         fitted_values_reg = model.fittedvalues
@@ -331,29 +391,29 @@ else:
 
                         # 3. Teste de Homocedasticidade (Breusch-Pagan)
                         try:
-                            # Garantir que X não tenha colunas não numéricas que não sejam dummies
                             X_bp_test = X.select_dtypes(include=np.number)
                             bp_test = sm.stats.het_breuschpagan(residuals_reg, X_bp_test)
                             labels_bp = ['Estatística LM', 'p-valor LM', 'Estatística F', 'p-valor F']
                             st.write("**Teste de Homocedasticidade (Breusch-Pagan):**")
                             for name, val in zip(labels_bp, bp_test):
                                 st.write(f"- {name}: {val:.4f}")
-                            if bp_test[1] < alpha:
+                            if bp_test[1] < 0.05:
                                 st.write("Evidência de Heterocedasticidade (p < 0.05). Variância dos erros não é constante.")
                             else:
                                 st.write("Não há evidência significativa de Heterocedasticidade (p >= 0.05).")
                         except Exception as e_bp:
                             st.warning(f"Não foi possível executar o teste de Breusch-Pagan: {e_bp}")
 
-
                     except Exception as e:
                         st.error(f"Erro ao ajustar o modelo de regressão: {e}")
                         st.info("Verifique se há multicolinearidade perfeita ou variáveis problemáticas.")
 
-st.sidebar.markdown("---")
-st.sidebar.info("""
-**Sobre este App:**
-Dashboard para análise do dataset Ames Housing usando ANOVA e Regressão Linear. 
-Criado para o Desafio da Tarefa 2.
-""")
+    st.sidebar.markdown("---")
+    st.sidebar.info("""
+    **Sobre este App:**
+    Dashboard para análise do dataset Ames Housing usando ANOVA e Regressão Linear. 
+    Criado para o Desafio da Tarefa 2.
+    """)
+
 # <<< FIM DO CÓDIGO PARA COLAR EM UM ARQUIVO CHAMADO app.py >>>
+
