@@ -9,49 +9,37 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
+import os
 
 # --- Configuração da Página ---
 st.set_page_config(layout="wide", page_title="Análise de Preços Imobiliários (Ames Housing)")
 
-# --- Função de carregamento usando Kagglehub ---
-@st.cache_data(show_spinner=False)
+# --- Função de carregamento usando CSV local ---
+@st.cache_data  # Cache para não recarregar os dados a cada interação
 def load_data():
     """
-    Usa o kagglehub para baixar/extrair o dataset 'prevek18/ames-housing-dataset'.
-    Retorna um DataFrame pandas com todos os dados do Ames Housing.
+    Carrega o dataset Ames Housing lendo um arquivo CSV local em data/AmesHousing.csv.
+    Retorna um DataFrame pandas. Se o arquivo não existir ou houver erro na leitura,
+    retorna DataFrame vazio e exibe mensagem de erro no Streamlit.
     """
-    import kagglehub
-    import os
+    # 1) Caminho relativo para o CSV dentro da pasta 'data/'
+    local_csv = "data/AmesHousing.csv"
 
-    try:
-        # 1) Baixa (ou, se já baixado, retorna o path local) dentro de um cache controlado:
-        local_path = kagglehub.dataset_download("prevek18/ames-housing-dataset")
-        # local_path será uma pasta onde estão todos os arquivos do dataset, incluindo o(s) CSV(s).
-        st.info(f"Dataset baixado/extrado via Kagglehub em: {local_path}")
-    except Exception as e:
-        st.error(f"Falha ao baixar o dataset via kagglehub: {e}")
-        return pd.DataFrame()
-
-    # 2) Percorre a pasta para encontrar o(s) .csv
-    csv_file = None
-    for entry in os.listdir(local_path):
-        if entry.lower().endswith(".csv"):
-            csv_file = os.path.join(local_path, entry)
-            break
-
-    if csv_file is None:
-        st.error("Não foi possível encontrar nenhum arquivo .csv dentro da pasta baixada do Kaggle.")
+    # 2) Verifica se o arquivo existe
+    if not os.path.isfile(local_csv):
+        st.error(f"Arquivo não encontrado: {local_csv}")
+        st.info("Coloque o arquivo 'AmesHousing.csv' dentro da pasta 'data/' no projeto.")
         return pd.DataFrame()
 
     try:
-        # 3) Lê o CSV encontrado
-        df = pd.read_csv(csv_file)
-        st.success("Dataset Ames Housing carregado com sucesso via Kagglehub!")
+        # 3) Lê o CSV
+        df = pd.read_csv(local_csv)
+        st.success("Dataset Ames Housing carregado com sucesso (arquivo local)!")
     except Exception as e:
-        st.error(f"Erro ao ler o arquivo CSV extraído: {e}")
+        st.error(f"Erro ao ler o arquivo local CSV: {e}")
         return pd.DataFrame()
 
-    # 4) Tratamento básico de valores ausentes (igual ao código original)
+    # 4) Tratamento de valores ausentes
     for col in df.select_dtypes(include=np.number).columns:
         if df[col].isnull().any():
             df[col].fillna(df[col].median(), inplace=True)
@@ -59,7 +47,7 @@ def load_data():
         if df[col].isnull().any():
             df[col].fillna('Missing', inplace=True)
 
-    # 5) Renomeação de colunas (igual ao seu código original), caso queira manter:
+    # 5) Renomeação opcional de colunas (para manter compatibilidade)
     df.rename(columns={
         'Overall Qual': 'OverallQual',
         'Gr Liv Area': 'GrLivArea',
@@ -78,10 +66,10 @@ def load_data():
 
     return df
 
-# Carrega o DataFrame (será baixado/extrado apenas na primeira vez)
+#  Carrega o DataFrame (será lido do CSV local)
 df_ames = load_data()
 
-# --- Área Principal do App ---
+# --- Título e aviso caso não carregue dados ---
 st.title("🏠 Dashboard de Análise de Preços Imobiliários")
 st.markdown("Dataset: Ames Housing")
 
@@ -109,7 +97,10 @@ else:
 
         if 'SalePrice' in df_ames.columns:
             st.subheader("Distribuição do Preço de Venda (SalePrice)")
-            fig_price_hist = px.histogram(df_ames, x='SalePrice', nbins=70, title="Distribuição do Preço de Venda")
+            fig_price_hist = px.histogram(
+                df_ames, x='SalePrice', nbins=70, 
+                title="Distribuição do Preço de Venda"
+            )
             st.plotly_chart(fig_price_hist, use_container_width=True)
         else:
             st.warning("Coluna 'SalePrice' não encontrada no dataset.")
@@ -118,7 +109,11 @@ else:
         numeric_cols = df_ames.select_dtypes(include=np.number).columns
         if not df_ames[numeric_cols].empty:
             corr_matrix = df_ames[numeric_cols].corr()
-            fig_corr = px.imshow(corr_matrix, title="Heatmap de Correlação", text_auto=".2f", aspect="auto", color_continuous_scale="Viridis")
+            fig_corr = px.imshow(
+                corr_matrix, title="Heatmap de Correlação",
+                text_auto=".2f", aspect="auto", 
+                color_continuous_scale="Viridis"
+            )
             st.plotly_chart(fig_corr, use_container_width=True)
         else:
             st.write("Nenhuma coluna numérica encontrada para calcular a correlação.")
@@ -145,6 +140,7 @@ else:
                 'OverallQual', 'Neighborhood', 'CentralAir', 
                 'KitchenQual', 'MSZoning', 'HouseStyle', 'ExterQual', 'BsmtQual'
             ]
+            # Caso 'OverallQual' seja numérico mas com poucas categorias, trata como string
             if 'OverallQual' in df_ames.columns and df_ames['OverallQual'].dtype != 'object' and df_ames['OverallQual'].nunique() < 15:
                 if 'OverallQual' not in all_cat_vars:
                     all_cat_vars.insert(0, 'OverallQual')
@@ -183,6 +179,7 @@ else:
                     )
                     st.plotly_chart(fig_boxplot, use_container_width=True)
 
+                    # Agrupa valores para cada categoria
                     groups = [
                         anova_data['SalePrice'][anova_data[cat_var] == val] 
                         for val in anova_data[cat_var].unique()
@@ -193,6 +190,7 @@ else:
                         st.warning(f"Não há grupos suficientes (mínimo 2 com >=2 obs.) para ANOVA na variável '{cat_var}'. Pulando.")
                         continue
 
+                    # Teste F de ANOVA
                     f_statistic, p_value_anova = stats.f_oneway(*groups_for_test)
                     st.write(f"**Resultado ANOVA:** F-Statistic = {f_statistic:.4f}, p-valor = {p_value_anova:.4g}")
 
@@ -275,7 +273,7 @@ else:
                                 f"na mediana do preço de venda entre os grupos de '{cat_var}'."
                             )
 
-                    # 4. Post-hoc (Tukey HSD) se ANOVA significativa e premissas ok
+                    # 4. Post‐hoc (Tukey HSD) se ANOVA significativa e premissas ok
                     if p_value_anova < alpha and prem_normalidade_ok and prem_homocedasticidade_ok:
                         st.markdown("**Teste Post-hoc (Tukey HSD):**")
                         tukey_results = pairwise_tukeyhsd(anova_data['SalePrice'], anova_data[cat_var], alpha=alpha)
@@ -349,7 +347,12 @@ else:
                     y = reg_df['SalePrice']
 
                     if selected_categorical_vars_reg:
-                        X = pd.get_dummies(X, columns=selected_categorical_vars_reg, drop_first=True, dtype=float)
+                        X = pd.get_dummies(
+                            X, 
+                            columns=selected_categorical_vars_reg, 
+                            drop_first=True, 
+                            dtype=float
+                        )
 
                     X = sm.add_constant(X.astype(float))  # Adicionar intercepto e garantir float
 
@@ -414,6 +417,5 @@ else:
     Dashboard para análise do dataset Ames Housing usando ANOVA e Regressão Linear. 
     Criado para o Desafio da Tarefa 2.
     """)
-
 # <<< FIM DO CÓDIGO PARA COLAR EM UM ARQUIVO CHAMADO app.py >>>
 
